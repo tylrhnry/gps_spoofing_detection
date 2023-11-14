@@ -132,3 +132,48 @@ impl MotionPoint for GyroPoint {
 }
 
 
+impl pos_data {
+    fn new() -> pos_data { // modify this to take in the data from the GPS for starting pos.
+        pos_data {
+            pos_x: 0.0,
+            pos_y: 0.0,
+            pos_z: 0.0,
+            vel_x: 0.0,
+            vel_y: 0.0,
+            vel_z: 0.0,
+            acc_x: 0.0,
+            acc_y: 0.0,
+            acc_z: 0.0,
+            time: 0.0,
+        }
+    }
+}
+
+
+/// calibrates the accelerometer at the start of the program
+/// by taking the average of 500 readings (~0.5 seconds) and 
+/// setting that as the zero point for x and y and 9.81 m/s^2 for z.
+/// 
+/// The accelerometer should be as level as possible and not moving.
+/// If the standard deviation is too high, the program will exit.
+fn calibrate_accelerometer() {
+
+}
+
+fn degrees_to_radians(degrees: f32) -> f32 {
+    degrees * PI / 180.0
+}
+
+/// function to compute new position of a value in one direction
+fn compute_position(x0: f32, v0: f32, a: f32, t: f32) -> f32 {
+    // x = x0 + v0*t + 1/2*a*t^2
+    let x = x0 + v0*t + 0.5*a*t.powi(2);
+    x
+}
+
+/// function to compute new velocity of a value in one direction
+fn compute_velocity(v0: f32, a: f32, t: f32) -> f32 {
+    // v = v0 + a*t
+    let v = v0 + a*t;
+    v
+}

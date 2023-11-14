@@ -48,3 +48,35 @@ fn main() {
     }
   }
 }
+
+
+impl pos_data {
+    fn new() -> pos_data { // modify this to take in the data from the GPS for starting pos.
+        pos_data {
+            pos_x: 0.0,
+            pos_y: 0.0,
+            pos_z: 0.0,
+            vel_x: 0.0,
+            vel_y: 0.0,
+            vel_z: 0.0,
+            acc_x: 0.0,
+            acc_y: 0.0,
+            acc_z: 0.0,
+            time: 0.0,
+        }
+    }
+}
+
+
+/// Computes the distance in meters between two points on earth.
+/// Takes in latitude and longitude of two points, and returns 
+/// the distance between them in meters.
+fn haversine_distance(lat1: f32, lon1: f32, lat2: f32, lon2: f32) -> f32 {
+    let r = 6371.0; // radius of earth in km
+    let d_lat = degrees_to_radians(lat2 - lat1);
+    let d_lon = degrees_to_radians(lon2 - lon1);
+    let a = (d_lat/2.0).sin() * (d_lat/2.0).sin() + lat1.cos() * lat2.cos() * (d_lon/2.0).sin() * (d_lon/2.0).sin();
+    let c = 2.0 * a.sqrt().atan2((1.0-a).sqrt());
+    let d = r * c;
+    d
+}
