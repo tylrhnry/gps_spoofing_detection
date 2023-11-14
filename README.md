@@ -20,3 +20,12 @@ on my laptop. I am, however, able to `cargo check` and verfiy the syntax. I will
 adding tests to better verify my program logic, although, because I am recieving a 
 constant stream of data from the sensors, I can't pass in data the same way for all 
 of the functions (the main ones testing benefits from).
+
+This is an example of the GPS data I can recieve (this is the unparsed and parsed data
+combined. There is a lot of data with the unparsed, and it is somewhat hard to visualize).
+![GPS data](./md_img/gps_out.png)
+
+This is an example of the accelerometer data I can parse from the module. This is before
+calibrating the data and converting it to G's.
+![Acceleromter data](./md_img/accel_out.png)
+
