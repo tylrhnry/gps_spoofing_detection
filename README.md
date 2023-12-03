@@ -29,3 +29,5 @@ This is an example of the accelerometer data I can parse from the module. This i
 calibrating the data and converting it to G's.
 ![Acceleromter data](./md_img/accel_out.png)
 
+I still need to organize the code, finish the calibration of the accelerometer, and use 
+the predicted location to detect GPS spoofing.

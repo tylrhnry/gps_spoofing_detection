@@ -3,58 +3,168 @@ use std::time::{Duration, Instant};
 use std::f32::consts::PI;
 use std::ops::{Add, Div};
 
-const MPU6050_ADDR: u16 = 0x68;
+const MPU6050_ADDR: u16 = 0x68; // I2C address of the MPU6050
+const ACCEL_CAL_TIME: u16 = 3500; // Default accelerometer calibration time in milliseconds
 
 fn main() {
-  // Set up I2C device (the GY-521 accelerometer/gyro)
+  let mut i2c = init_mpu6050(); // Set up I2C device (the GY-521 accelerometer/gyro)
+
+  let (accel_offsets, gyro_offsets) = calibrate_mpu6050(&i2c); // Calibrate the accelerometer
+
+  loop {
+    let accel_point = get_acceleration(&mut i2c);
+    let zeroed_accel_point @ DataPoint {x: a_x, y: a_y, z: a_z} = accel_point - accel_offsets;
+
+    let gyro_point = get_gyroscope(&mut i2c);
+    let zeroed_gyro_point @ DataPoint {x: g_x, y: g_y, z: g_z} = gyro_point - gyro_offsets;
+
+    print!("Accel: X={},\tY={},\tZ={}\t", a_x, a_y, a_z);
+    println!("Gyro: X={},\tY={},\tZ={}", g_x, g_y, g_z);
+  }
+}
+
+
+fn init_mpu6050() -> I2c {
   let mut i2c = I2c::new().unwrap();
   i2c.set_slave_address(MPU6050_ADDR).unwrap();
 
-  let _ = i2c.write_read(&[0x6B, 0x08], &mut [0; 1]);
+  let _ = i2c.write_read(&[0x6B, 0x08], &mut [0; 1]); // enable the mpu6050
 
-  // Read accelerometer values
-  let start = Instant::now();
-  let mut iters = 0;
+  let _ = i2c.write_read(&[0x1A, 0x05], &mut [0; 1]); // enable gyro low pass filter
+  let _ = i2c.write_read(&[0x1B, 0x18], &mut [0; 1]); // set gyro range to +-1000 deg/s
 
+  i2c
+}
+
+
+/// Iterates over mpu6050 data points to find average to be used to zero the
+/// output.
+/// 
+/// Returns a tuple containing (acceleration offset, gyroscope offset) where
+/// each is a Datapoint struct containing the x, y, and z offsets.
+/// 
+/// 'max_cal_time' is number of seconds to calibrate for
+/// 'diff_between_iters' is the maximum difference between iterations to be considered consistent
+/// 'consistent_iters' is the number of iterations that must be consistent to be considered the average
+fn calibrate_mpu6050(i2c: &mut I2c, max_calibration_time: Option<Duration>, 
+                     diff_between_iters: Option<f32>, consistent_iters: Option<u8>)
+                     -> (DataPoint, DataPoint) {
+  // set default values if none given
+  let max_calibration_time = max_calibration_time.unwrap_or(Duration::from_millis(ACCEL_CAL_TIME));
+  let diff_between_iters = diff_between_iters.unwrap_or(2.0);
+  let consistent_iters = consistent_iters.unwrap_or(5);
+
+  // vector of data points to average
   let mut accel_vec: Vec<DataPoint> = Vec::new();
   let mut gyro_vec:  Vec<DataPoint> = Vec::new();
 
+  // previous average values (to see if current iteration is consistent with previous)
+  let mut prev_avg_accel = DataPoint::default();
+  let mut prev_avg_gyro  = DataPoint::default();
+
+  // whether or not the average has been found during loop (to not keep evaluating)
+  let mut avg_accel_found = false;
+  let mut avg_gyro_found  = false;
+
+  // number of iterations where the average has been consistent
+  let mut consistent_accel_iters = 0;
+  let mut consistent_gyro_iters  = 0;
+
+  // final values to be used for calibration
+  let mut avg_accel_offset = get_acceleration(&mut i2c);
+  let mut avg_gyro_offset  = get_gyroscope(&mut i2c);
+
+  let start = Instant::now();
+
   loop {
+    // calculate acceleration (if needed)
+    if !avg_accel_found {
+      let accel_point = get_acceleration(&mut i2c);
+      accel_vec.push(accel_point);
+      let avg = get_average(&accel_vec);
+      if (prev_avg_accel.x - avg.x).abs() < diff_between_iters &&
+         (prev_avg_accel.y - avg.y).abs() < diff_between_iters &&
+         (prev_avg_accel.z - avg.z).abs() < diff_between_iters {
+        // average didn't change much between iterations
+        consistent_accel_iters += 1;
+      } else {
+        consistent_accel_iters = 0; // reset counter
+      }
+      prev_avg_accel = accel_point;
+      if consistent_accel_iters >= consistent_iters {
+        avg_accel_found = true; // don't keep evaluating acceleration
+        avg_accel_offset = avg; // set final calibration values
+      }
+    }
     
-    if start.elapsed() >= Duration::from_secs(1) {
-      println!("Iterations in 1 sec.: {iters}");
+    // calculate gyroscope (if needed)
+    if !avg_gyro_found {
+      let gyro_point = get_gyroscope(&mut i2c);
+      gyro_vec.push(gyro_point);
+      let avg = get_average(&gyro_vec);
+      if (prev_avg_gyro.x - avg.x).abs() < diff_between_iters &&
+         (prev_avg_gyro.y - avg.y).abs() < diff_between_iters &&
+         (prev_avg_gyro.z - avg.z).abs() < diff_between_iters {
+        // average didn't change much between iterations
+        consistent_gyro_iters += 1;
+      } else {
+        consistent_gyro_iters = 0; // reset counter
+      }
+      prev_avg_gyro = gyro_point;
+      if consistent_gyro_iters >= consistent_iters {
+        avg_gyro_found = true; // don't keep evaluating acceleration
+        avg_gyro_offset = avg; // set final calibration values
+      }
+    }
+
+    // check if both averages have been found
+    if avg_accel_found && avg_gyro_found {
+      break;
+    }
+    // check if max time has been exceeded
+    if start.elapsed() >= max_calibration_time {
+      println!("Calibration time exceeded");
       break;
     };
-
-    let mut accel_data = [0; 6];
-    let mut gyro_data  = [0; 6];
-    let _ = i2c.write_read(&[0x3B], &mut accel_data);
-    let _ = i2c.write_read(&[0x43], &mut gyro_data);
- 
-
-    let accel_x = i16::from_be_bytes([accel_data[0], accel_data[1]]);
-    let accel_y = i16::from_be_bytes([accel_data[2], accel_data[3]]);
-    let accel_z = i16::from_be_bytes([accel_data[4], accel_data[5]]);
-    let accel_point = DataPoint {x: accel_x, y: accel_y, z: accel_z};
-    accel_vec.push(accel_point);
-
-    let gyro_x = i16::from_be_bytes([gyro_data[0], gyro_data[1]]);
-    let gyro_y = i16::from_be_bytes([gyro_data[2], gyro_data[3]]);
-    let gyro_z = i16::from_be_bytes([gyro_data[4], gyro_data[5]]);
-    let gyro_point = DataPoint {x: gyro_x, y: gyro_y, z: gyro_z};
-    gyro_vec.push(gyro_point);
-
-
-    println!("Accelerometer: X={},\tY={},\tZ={}", accel_x, accel_y, accel_z);
-    println!("Gyroscope:     X={},\tY={},\tZ={}", gyro_x, gyro_y, gyro_z);
-    iters += 1;
   }
-
-  let accel_avg = get_average(&accel_vec);
-  let gyro_avg  = get_average(&gyro_vec);
-  println!("Average accel: {:?}", accel_avg);
-  println!("Average gyro:  {:?}", gyro_avg);
+  (avg_accel_offset, avg_gyro_offset)
 }
+
+fn get_average(points: &[DataPoint]) -> DataPoint {
+  let len = points.len() as i32;
+
+  let (sum_x, sum_y, sum_z) = points.iter().fold((0, 0, 0), |acc, p| {
+      (acc.0 + p.x as i32, acc.1 + p.y as i32, acc.2 + p.z as i32)
+  });
+
+  DataPoint {
+      x: (sum_x / len) as i16,
+      y: (sum_y / len) as i16,
+      z: (sum_z / len) as i16,
+  }
+}
+
+
+fn get_acceleration(i2c: &mut I2c) -> DataPoint {
+  let mut accel_data = [0; 6];
+  let _ = i2c.write_read(&[0x3B], &mut accel_data);
+
+  let accel_x = i16::from_be_bytes([accel_data[0], accel_data[1]]);
+  let accel_y = i16::from_be_bytes([accel_data[2], accel_data[3]]);
+  let accel_z = i16::from_be_bytes([accel_data[4], accel_data[5]]);
+  DataPoint {x: accel_x, y: accel_y, z: accel_z}
+}
+
+fn get_gyroscope(i2c: &mut I2c) -> DataPoint {
+  let mut gyro_data = [0; 6];
+  let _ = i2c.write_read(&[0x43], &mut gyro_data);
+
+  let gyro_x = i16::from_be_bytes([gyro_data[0], gyro_data[1]]);
+  let gyro_y = i16::from_be_bytes([gyro_data[2], gyro_data[3]]);
+  let gyro_z = i16::from_be_bytes([gyro_data[4], gyro_data[5]]);
+  DataPoint {x: gyro_x, y: gyro_y, z: gyro_z}
+}
+
 
 #[derive(Clone, Copy, Default, Debug)]
 struct DataPoint {
@@ -75,6 +185,18 @@ impl Add for DataPoint {
   }
 }
 
+impl Sub for DataPoint {
+  type Output = Self;
+
+  fn sub(self, other: Self) -> Self {
+    DataPoint {
+      x: self.x - other.x,
+      y: self.y - other.y,
+      z: self.z - other.z,
+    }
+  }
+}
+
 impl Div<i16> for DataPoint {
   type Output = Self;
 
@@ -87,50 +209,6 @@ impl Div<i16> for DataPoint {
   }
 }
 
-
-fn get_average(points: &[DataPoint]) -> DataPoint {
-  let len = points.len() as i32;
-
-  let (sum_x, sum_y, sum_z) = points.iter().fold((0, 0, 0), |acc, p| {
-      (acc.0 + p.x as i32, acc.1 + p.y as i32, acc.2 + p.z as i32)
-  });
-
-  DataPoint {
-      x: (sum_x / len) as i16,
-      y: (sum_y / len) as i16,
-      z: (sum_z / len) as i16,
-  }
-}
-
-
-
-// impl pos_data {
-//     fn new() -> pos_data { // modify this to take in the data from the GPS for starting pos.
-//         pos_data {
-//             pos_x: 0.0,
-//             pos_y: 0.0,
-//             pos_z: 0.0,
-//             vel_x: 0.0,
-//             vel_y: 0.0,
-//             vel_z: 0.0,
-//             acc_x: 0.0,
-//             acc_y: 0.0,
-//             acc_z: 0.0,
-//             time: 0.0,
-//         }
-//     }
-// }
-
-
-/// calibrates the accelerometer at the start of the program
-/// by taking the average of 500 readings (~0.5 seconds) and 
-/// setting that as the zero point for x and y and 9.81 m/s^2 for z.
-/// 
-/// The accelerometer should be as level as possible and not moving.
-/// If the standard deviation is too high, the program will exit.
-fn calibrate_accelerometer() {
-  todo!();
-}
 
 fn degrees_to_radians(degrees: f32) -> f32 {
     degrees * PI / 180.0
@@ -151,103 +229,106 @@ fn compute_velocity(v0: f32, a: f32, t: f32) -> f32 {
 }
 
 
-// cargo build
-// Compiling acc_practice v0.1.0 (/home/tylrhnry/programming/rust/acc_practice)
-// error[E0277]: cannot add `AccelPoint` to `AccelPoint`
-// --> src/main.rs:53:47
-// |
-// 53 |   println!("Average accel: {:?}", get_average(&accel_vec));
-// |                                   ----------- ^^^^^^^^^^ no implementation for `AccelPoint + AccelPoint`
-// |                                   |
-// |                                   required by a bound introduced by this call
-// |
-// = help: the trait `Add` is not implemented for `AccelPoint`
-// note: required by a bound in `get_average`
-// --> src/main.rs:72:26
-// |
-// 71 | fn get_average<T>(points: &[T]) -> T
-// |    ----------- required by a bound in this function
-// 72 |   where T: MotionPoint + Add<Output = T> + Div<i16, Output = T>
-// |                          ^^^^^^^^^^^^^^^ required by this bound in `get_average`
 
-// error[E0277]: cannot divide `AccelPoint` by `i16`
-// --> src/main.rs:53:47
-// |
-// 53 |   println!("Average accel: {:?}", get_average(&accel_vec));
-// |                                   ----------- ^^^^^^^^^^ no implementation for `AccelPoint / i16`
-// |                                   |
-// |                                   required by a bound introduced by this call
-// |
-// = help: the trait `Div<i16>` is not implemented for `AccelPoint`
-// note: required by a bound in `get_average`
-// --> src/main.rs:72:44
-// |
-// 71 | fn get_average<T>(points: &[T]) -> T
-// |    ----------- required by a bound in this function
-// 72 |   where T: MotionPoint + Add<Output = T> + Div<i16, Output = T>
-// |                                            ^^^^^^^^^^^^^^^^^^^^ required by this bound in `get_average`
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use std::f32::consts::PI;
 
-// error[E0277]: cannot add `GyroPoint` to `GyroPoint`
-// --> src/main.rs:54:47
-// |
-// 54 |   println!("Average gyro:  {:?}", get_average(&gyro_vec));
-// |                                   ----------- ^^^^^^^^^ no implementation for `GyroPoint + GyroPoint`
-// |                                   |
-// |                                   required by a bound introduced by this call
-// |
-// = help: the trait `Add` is not implemented for `GyroPoint`
-// note: required by a bound in `get_average`
-// --> src/main.rs:72:26
-// |
-// 71 | fn get_average<T>(points: &[T]) -> T
-// |    ----------- required by a bound in this function
-// 72 |   where T: MotionPoint + Add<Output = T> + Div<i16, Output = T>
-// |                          ^^^^^^^^^^^^^^^ required by this bound in `get_average`
+  #[test]
+  fn test_get_average() {
+    let points = vec![
+      DataPoint {x: 1, y: 2, z: 3},
+      DataPoint {x: 2, y: 3, z: 4},
+      DataPoint {x: 3, y: 4, z: 5},
+      DataPoint {x: 4, y: 5, z: 6},
+      DataPoint {x: 5, y: 6, z: 7},
+    ];
+    let avg = get_average(&points);
+    assert_eq!(avg.x, 3);
+    assert_eq!(avg.y, 4);
+    assert_eq!(avg.z, 5);
+  }
 
-// error[E0277]: cannot divide `GyroPoint` by `i16`
-// --> src/main.rs:54:47
-// |
-// 54 |   println!("Average gyro:  {:?}", get_average(&gyro_vec));
-// |                                   ----------- ^^^^^^^^^ no implementation for `GyroPoint / i16`
-// |                                   |
-// |                                   required by a bound introduced by this call
-// |
-// = help: the trait `Div<i16>` is not implemented for `GyroPoint`
-// note: required by a bound in `get_average`
-// --> src/main.rs:72:44
-// |
-// 71 | fn get_average<T>(points: &[T]) -> T
-// |    ----------- required by a bound in this function
-// 72 |   where T: MotionPoint + Add<Output = T> + Div<i16, Output = T>
-// |                                            ^^^^^^^^^^^^^^^^^^^^ required by this bound in `get_average`
+  #[test]
+  fn test_add_datapoint() {
+    let p1 = DataPoint {x: 1, y: 2, z: 3};
+    let p2 = DataPoint {x: 2, y: 3, z: 4};
+    let p3 = p1 + p2;
+    assert_eq!(p3.x, 3);
+    assert_eq!(p3.y, 5);
+    assert_eq!(p3.z, 7);
+  }
 
-// error[E0609]: no field `x` on type `&Self`
-// --> src/main.rs:81:41
-// |
-// 79 | trait MotionPoint: Clone + Default {
-// | ---------------------------------- type parameter 'Self' declared here
-// 80 |   fn display(&self) {
-// 81 |     println!("X={},\tY={},\tZ={}", self.x, self.y, self.z);
-// |                                         ^
+  #[test]
+  fn test_sub_datapoint() {
+    let p1 = DataPoint {x: 1, y: 2, z: 3};
+    let p2 = DataPoint {x: 2, y: 3, z: 4};
+    let p3 = p2 - p1;
+    assert_eq!(p3.x, 1);
+    assert_eq!(p3.y, 1);
+    assert_eq!(p3.z, 1);
+  }
 
-// error[E0609]: no field `y` on type `&Self`
-// --> src/main.rs:81:49
-// |
-// 79 | trait MotionPoint: Clone + Default {
-// | ---------------------------------- type parameter 'Self' declared here
-// 80 |   fn display(&self) {
-// 81 |     println!("X={},\tY={},\tZ={}", self.x, self.y, self.z);
-// |                                                 ^
+  #[test]
+  fn test_div_datapoint() {
+    let p1 = DataPoint {x: 12, y: 24, z: 36};
+    let p2 = p1 / 2;
+    assert_eq!(p2.x, 6);
+    assert_eq!(p2.y, 12);
+    assert_eq!(p2.z, 18);
+  }
 
-// error[E0609]: no field `z` on type `&Self`
-// --> src/main.rs:81:57
-// |
-// 79 | trait MotionPoint: Clone + Default {
-// | ---------------------------------- type parameter 'Self' declared here
-// 80 |   fn display(&self) {
-// 81 |     println!("X={},\tY={},\tZ={}", self.x, self.y, self.z);
-// |                                                         ^
+  #[test]
+  fn test_degrees_to_radians() {
+    let deg = 180.0;
+    let rad = degrees_to_radians(deg);
+    assert_eq!(rad, PI);
+  }
 
-// Some errors have detailed explanations: E0277, E0609.
-// For more information about an error, try `rustc --explain E0277`.
-// error: could not compile `acc_practice` (bin "acc_practice") due to 7 previous errors
+  #[test]
+  fn test_compute_position() {
+    let x0 = 0.0;
+    let v0 = 0.0;
+    let a = 0.0;
+    let t = 0.0;
+    let x = compute_position(x0, v0, a, t);
+    assert_eq!(x, 0.0);
+
+    let x0 = 0.0;
+    let v0 = 0.0;
+    let a = 5.0;
+    let t = 2.0;
+    let x = compute_position(x0, v0, a, t);
+    assert_eq!(x, 10.0);
+
+    let x0 = 10.0;
+    let v0 = 5.0;
+    let a = 5.0;
+    let t = 2.0;
+    let x = compute_position(x0, v0, a, t);
+    assert_eq!(x, 30.0);
+  }
+
+  #[test]
+  fn test_compute_velocity() {
+    let v0 = 0.0;
+    let a = 0.0;
+    let t = 0.0;
+    let v = compute_velocity(v0, a, t);
+    assert_eq!(v, 0.0);
+
+    let v0 = 0.0;
+    let a = 5.0;
+    let t = 2.0;
+    let v = compute_velocity(v0, a, t);
+    assert_eq!(v, 10.0);
+
+    let v0 = 5.0;
+    let a = 5.0;
+    let t = 2.0;
+    let v = compute_velocity(v0, a, t);
+    assert_eq!(v, 15.0);
+  }
+
+}

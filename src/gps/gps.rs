@@ -2,16 +2,14 @@ use std::time::Duration;
 use adafruit_gps::{Gps, GpsSentence};
 use adafruit_gps::NmeaOutput;
 
+const PORT_NAME: &str  = "/dev/ttyS0";
+const BAUD_RATE: &str = "9600";
+
 
 fn main() {
-    
-  let port_name = "/dev/ttyS0";
-  let baud_rate = "9600";
 
-  let mut gps = Gps::new(&port_name, &baud_rate);
-  gps.pmtk_220_set_nmea_updaterate("1000"); // set update rate te 1 second
-  gps.pmtk_314_api_set_nmea_output(NmeaOutput{gga: 1, gsa: 1, gsv: 1, gll: 1, // modify to only get the data we need
-                                              rmc: 1, vtg: 1, pmtkchn_interval: 1});
+  let mut gps = Gps::new(&PORT_NAME, &BAUD_RATE);
+  init_gps(&mut gps);
 
   loop {
     let sentence = gps.update();
@@ -49,22 +47,63 @@ fn main() {
   }
 }
 
+struct GpsCoord {
+  lat: f32,
+  lon: f32,
+}
 
-impl pos_data {
-    fn new() -> pos_data { // modify this to take in the data from the GPS for starting pos.
-        pos_data {
-            pos_x: 0.0,
-            pos_y: 0.0,
-            pos_z: 0.0,
-            vel_x: 0.0,
-            vel_y: 0.0,
-            vel_z: 0.0,
-            acc_x: 0.0,
-            acc_y: 0.0,
-            acc_z: 0.0,
-            time: 0.0,
-        }
+struct GpsData {
+  lat: f32,   // rmc, 
+  lon: f32,   // rmc, 
+  alt: f32,   // gga
+  speed: f32, // rmc, 
+  time: f32,  // rmc, 
+  date: &str, // rmc
+  hor_prec: f32, // gsa, 
+  ver_prec: f32, // gsa, 
+}
+
+/// setup gps refresh rate and which sentences to output
+fn init_gps(gps: &mut Gps) {
+  gps.pmtk_220_set_nmea_updaterate("1000"); // set update rate te 1 second
+  gps.pmtk_314_api_set_nmea_output(
+    // every _ updates, give me the sentence (1 = every update, 0 = never)
+    NmeaOutput{
+      // the current selection of data to extract includes all the 
+      // information to instantiate a GpsData struct
+      gga: 1, 
+      gsa: 1, 
+      gsv: 0, 
+      gll: 0, 
+      rmc: 1, 
+      vtg: 0, 
+      pmtkchn_interval: 0
     }
+  );
+}
+
+/// waits for gps to get a fix
+fn wait_for_fix(gps: &mut Gps, mut timeout_sec: u32) -> Option<GpsCoord> {
+  start = Instant::now();
+  while timeout_sec > (Instant::now() - start) {
+    let sentence = gps.update();
+    if sentence == GpsSentence::GGA(sen) {
+      if sen.sat_fix != NoFix {
+        return (
+          GpsCoord {
+            lat: sen.lat.unwrap_or(0.0), // can I get rid of default values here?
+            lon: sen.long.unwrap_or(0.0)
+          }
+        );
+      }
+    }
+  }
+  None // timed out before getting a fix
+}
+
+// get gps data or return none if no fix
+fn get_gps() {
+  todo!();
 }
 
 
