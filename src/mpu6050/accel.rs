@@ -24,6 +24,7 @@ fn main() {
 }
 
 
+/// Initializes the mpu6050 and returns an I2c device
 fn init_mpu6050() -> I2c {
   let mut i2c = I2c::new().unwrap();
   i2c.set_slave_address(MPU6050_ADDR).unwrap();
@@ -130,6 +131,8 @@ fn calibrate_mpu6050(i2c: &mut I2c, max_calibration_time: Option<Duration>,
   (avg_accel_offset, avg_gyro_offset)
 }
 
+
+/// Returns the mean average of a vector of DataPoints
 fn get_average(points: &[DataPoint]) -> DataPoint {
   let len = points.len() as i32;
 
@@ -145,6 +148,7 @@ fn get_average(points: &[DataPoint]) -> DataPoint {
 }
 
 
+/// Reads mpu6050 and returns the acceleration data as a DataPoint struct
 fn get_acceleration(i2c: &mut I2c) -> DataPoint {
   let mut accel_data = [0; 6];
   let _ = i2c.write_read(&[0x3B], &mut accel_data);
@@ -155,6 +159,7 @@ fn get_acceleration(i2c: &mut I2c) -> DataPoint {
   DataPoint {x: accel_x, y: accel_y, z: accel_z}
 }
 
+/// Reads mpu6050 and returns the gyroscope data as a DataPoint struct
 fn get_gyroscope(i2c: &mut I2c) -> DataPoint {
   let mut gyro_data = [0; 6];
   let _ = i2c.write_read(&[0x43], &mut gyro_data);
@@ -166,6 +171,7 @@ fn get_gyroscope(i2c: &mut I2c) -> DataPoint {
 }
 
 
+/// DataPoint struct to hold x, y, and z values for acceleration and gyroscope
 #[derive(Clone, Copy, Default, Debug)]
 struct DataPoint {
   x: i16,
@@ -210,22 +216,16 @@ impl Div<i16> for DataPoint {
 }
 
 
-fn degrees_to_radians(degrees: f32) -> f32 {
-    degrees * PI / 180.0
-}
-
-/// function to compute new position of a value in one direction
+/// Computes new position (in one direction) based on acceleration
 fn compute_position(x0: f32, v0: f32, a: f32, t: f32) -> f32 {
-    // x = x0 + v0*t + 1/2*a*t^2
-    let x = x0 + v0*t + 0.5*a*t.powi(2);
-    x
+  // x = x0 + v0*t + 1/2*a*t^2
+  x0 + v0*t + 0.5*a*t.powi(2)
 }
 
-/// function to compute new velocity of a value in one direction
+/// Computes new velocity (in one direction) based on acceleration
 fn compute_velocity(v0: f32, a: f32, t: f32) -> f32 {
-    // v = v0 + a*t
-    let v = v0 + a*t;
-    v
+  // v = v0 + a*t
+  v0 + a*t
 }
 
 
@@ -233,7 +233,6 @@ fn compute_velocity(v0: f32, a: f32, t: f32) -> f32 {
 #[cfg(test)]
 mod tests {
   use super::*;
-  use std::f32::consts::PI;
 
   #[test]
   fn test_get_average() {
@@ -277,13 +276,6 @@ mod tests {
     assert_eq!(p2.x, 6);
     assert_eq!(p2.y, 12);
     assert_eq!(p2.z, 18);
-  }
-
-  #[test]
-  fn test_degrees_to_radians() {
-    let deg = 180.0;
-    let rad = degrees_to_radians(deg);
-    assert_eq!(rad, PI);
   }
 
   #[test]
