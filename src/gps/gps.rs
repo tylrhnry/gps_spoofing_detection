@@ -11,23 +11,6 @@ const UPDATE_RATE: &str = "1000"; // How often to update gps in milliseconds. Ba
 const GPS_FIX_TIMEOUT: Duration = Duration::from_secs(60); // How long to wait for gps fix before timing out
 
 
-fn main() {
-
-  let mut gps = Gps::new(&PORT_NAME, &BAUD_RATE);
-  init_gps(&mut gps);
-
-  println!("Waiting for gps fix...");
-  let fix = wait_for_fix(&mut gps, GPS_FIX_TIMEOUT);
-  if let None = fix {
-    println!("Timed out waiting for gps fix");
-  }
-
-  loop {
-    let gps_data = get_gps(&mut gps).expect("Lost connection to gps");
-    println!("{:?}", gps_data);
-  }
-}
-
 
 /// Struct to hold gps coordinates
 struct GpsCoord {
@@ -64,7 +47,7 @@ impl GpsData {
 }
 
 /// setup gps refresh rate and which sentences to output
-fn init_gps(gps: &mut Gps) {
+pub fn init_gps(gps: &mut Gps) {
   gps.pmtk_220_set_nmea_updaterate(&UPDATE_RATE); // set update rate te 1 second
   gps.pmtk_314_api_set_nmea_output(
     // every _ updates, give me the sentence (1 = every update, 0 = never)
@@ -83,7 +66,7 @@ fn init_gps(gps: &mut Gps) {
 }
 
 /// waits for gps to get a fix
-fn wait_for_fix(gps: &mut Gps, timeout_sec: Duration) -> Option<GpsCoord> {
+pub fn wait_for_fix(gps: &mut Gps, timeout_sec: Duration) -> Option<GpsCoord> {
   let start = Instant::now();
   while timeout_sec > (Instant::now() - start) {
     let sentence = gps.update();
@@ -102,7 +85,7 @@ fn wait_for_fix(gps: &mut Gps, timeout_sec: Duration) -> Option<GpsCoord> {
 }
 
 // get gps data or return none if no fix
-fn get_gps(gps: &mut Gps) -> Option<GpsData> {
+pub fn get_gps(gps: &mut Gps) -> Option<GpsData> {
   let mut data = GpsData::new();
 
   let mut rmc = false;

@@ -21,6 +21,25 @@ const GRAVITY_ACCEL: f32 = 9.80665; // Gravity acceleration in m/s^2
 const ACCEL_SENSITIVITY: f32 = 16384.0; // Accelerometer sensitivity in LSB/g (Currently set to +-2g)
 
 
+fn main() {
+  let i2c = RefCell::new(init_mpu6050()); // Set up I2C device (the GY-521 accelerometer/gyro)
+  let i2c = i2c.borrow_mut();
+
+  println!("Calibrating MPU6050...");
+  let (accel_offsets, gyro_offsets) = calibrate_mpu6050(&i2c, None, None, None); // Calibrate the accelerometer
+  println!("Calibration complete");
+
+  loop {
+    let RawAccel {x: a_x, y: a_y, z: a_z} = get_converted_acceleration(&i2c, &accel_offsets);
+    
+    let GyroPoint::Gyro(gyro_data) = get_offset_gyroscope(&i2c, &gyro_offsets);
+    let DataPoint {x: g_x, y: g_y, z: g_z} = gyro_data;
+
+    print!("Accel: X={:.3}, Y={:.3}, Z={:.3}\t", a_x, a_y, a_z);
+    println!("Gyro: X={}, Y={}, Z={}", g_x, g_y, g_z);
+  }
+}
+
 
 /// DataPoint struct to hold x, y, and z values for acceleration and gyroscope
 #[derive(Clone, Copy, Default, Debug)]
@@ -72,7 +91,7 @@ fn init_mpu6050() -> I2c {
 /// 'max_cal_time' is number of seconds to calibrate for
 /// 'diff_between_iters' is the maximum difference between iterations to be considered consistent
 /// 'consistent_iters' is the number of iterations that must be consistent to be considered the average
-pub fn calibrate_mpu6050(i2c: &RefMut<I2c>, max_calibration_time: Option<Duration>, 
+fn calibrate_mpu6050(i2c: &RefMut<I2c>, max_calibration_time: Option<Duration>, 
                      diff_between_iters: Option<i16>, consistent_iters: Option<u8>)
                      -> (AccelPoint, GyroPoint) {
   // set default values if none given
@@ -121,7 +140,7 @@ pub fn calibrate_mpu6050(i2c: &RefMut<I2c>, max_calibration_time: Option<Duratio
       if consistent_accel_iters >= consistent_iters {
         avg_accel_found = true; // don't keep evaluating acceleration
         // subtract 1g from z axis
-        let gravity_avg = DataPoint::new(avg.x(), avg.y(), avg.z() - (ACCEL_SENSITIVITY as i16));
+        let gravity_avg = DataPoint::new(avg.x(), avg.y(), (avg.z() - (ACCEL_SENSITIVITY as i16)));
         avg_accel_offset = AccelPoint::Accel(gravity_avg); // set final calibration values
       }
     }
@@ -221,27 +240,27 @@ fn convert_raw_point(raw_point: AccelPoint) -> RawAccel {
 }
 
 /// Gets an acceleration point, applies the calibration offsets, and converts to m/s^2
-pub fn get_converted_acceleration(i2c: &RefMut<I2c>, accel_offsets: &AccelPoint) -> RawAccel {
+fn get_converted_acceleration(i2c: &RefMut<I2c>, accel_offsets: &AccelPoint) -> RawAccel {
   let accel_point = get_acceleration(&i2c);
   let offset_acceleration = accel_point - *accel_offsets;
   convert_raw_point(offset_acceleration)
 }
 
 /// Gets a gyroscope point and applies the calibration offsets
-pub fn get_offset_gyroscope(i2c: &RefMut<I2c>, gyro_offsets: &GyroPoint) -> GyroPoint {
+fn get_offset_gyroscope(i2c: &RefMut<I2c>, gyro_offsets: &GyroPoint) -> GyroPoint {
   let gyro_point = get_gyroscope(&i2c);
   gyro_point - *gyro_offsets
 }
 
 
 /// Computes new position (in one direction) based on acceleration
-pub fn compute_position(x0: f32, v0: f32, a: f32, t: f32) -> f32 {
+fn compute_position(x0: f32, v0: f32, a: f32, t: f32) -> f32 {
   // x = x0 + v0*t + 1/2*a*t^2
   x0 + v0*t + 0.5*a*t.powi(2)
 }
 
 /// Computes new velocity (in one direction) based on acceleration
-pub fn compute_velocity(v0: f32, a: f32, t: f32) -> f32 {
+fn compute_velocity(v0: f32, a: f32, t: f32) -> f32 {
   // v = v0 + a*t
   v0 + a*t
 }
@@ -469,14 +488,6 @@ impl Div<i16> for GyroPoint {
     match self {
       GyroPoint::Gyro(g) => GyroPoint::Gyro(g / divisor),
     }
-  }
-}
-
-
-/// Raw Acceleration Implementations
-impl Display for RawAccel {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    write!(f, "Accel: (x: {:.3}, y: {:.3}, z: {:.3})", self.x, self.y, self.z)
   }
 }
 
