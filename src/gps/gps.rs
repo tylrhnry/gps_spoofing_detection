@@ -1,26 +1,39 @@
-use std::time::{Instant, Duration};
-use adafruit_gps::{Gps, GpsSentence};
-use adafruit_gps::NmeaOutput;
 use adafruit_gps::gga::SatFix::NoFix;
+use adafruit_gps::NmeaOutput;
+use adafruit_gps::{Gps, GpsSentence};
 use std::f32::consts::PI;
+use std::time::{Instant, Duration};
+
+use crate::mpu6050::accel::RawPoint;
 
 
-const PORT_NAME: &str  = "/dev/ttyS0";
-const BAUD_RATE: &str = "9600";
+// const PORT_NAME: &str = "/dev/ttyS0";
+// const BAUD_RATE: &str = "9600";
 const UPDATE_RATE: &str = "1000"; // How often to update gps in milliseconds. Baud rate must change with this
-const GPS_FIX_TIMEOUT: Duration = Duration::from_secs(60); // How long to wait for gps fix before timing out
+// const GPS_FIX_TIMEOUT: Duration = Duration::from_secs(60); // How long to wait for gps fix before timing out
 
 
 
 /// Struct to hold gps coordinates
-struct GpsCoord {
+pub struct GpsCoord {
   lat: f32,
   lon: f32,
+  alt: f32,
+}
+
+impl GpsCoord {
+  pub fn new(lat: f32, lon: f32, alt: f32) -> GpsCoord {
+    GpsCoord {
+      lat,
+      lon,
+      alt,
+    }
+  }
 }
 
 
 #[derive(Debug)]
-struct GpsData {
+pub struct GpsData {
   lat: f32,   // rmc, 
   lon: f32,   // rmc, 
   alt: f32,   // gga
@@ -48,7 +61,7 @@ impl GpsData {
 
 /// setup gps refresh rate and which sentences to output
 pub fn init_gps(gps: &mut Gps) {
-  gps.pmtk_220_set_nmea_updaterate(&UPDATE_RATE); // set update rate te 1 second
+  gps.pmtk_220_set_nmea_updaterate(UPDATE_RATE); // set update rate te 1 second
   gps.pmtk_314_api_set_nmea_output(
     // every _ updates, give me the sentence (1 = every update, 0 = never)
     NmeaOutput{
@@ -75,7 +88,8 @@ pub fn wait_for_fix(gps: &mut Gps, timeout_sec: Duration) -> Option<GpsCoord> {
         return Some(
           GpsCoord {
             lat: sen.lat.unwrap_or(0.0), // can I get rid of default values here?
-            lon: sen.long.unwrap_or(0.0)
+            lon: sen.long.unwrap_or(0.0),
+            alt: sen.msl_alt.unwrap_or(0.0),
           }
         );
       }
@@ -117,7 +131,6 @@ pub fn get_gps(gps: &mut Gps) -> Option<GpsData> {
       },
       _ => {
         // ignore other sentence types (the data isn't as important for our purposes)
-        ();
       }   
     }
   }
@@ -125,13 +138,30 @@ pub fn get_gps(gps: &mut Gps) -> Option<GpsData> {
 }
 
 
+pub fn calc_new_pos(old_pos: &GpsCoord, vel: &RawPoint, accel: &RawPoint, time: &f64) -> GpsCoord {
+  let new_lat = old_pos.lat + vel.x() * (*time as f32) + 0.5 * accel.x() * (*time as f32).powi(2);
+  let new_lon = old_pos.lon + vel.y() * (*time as f32) + 0.5 * accel.y() * (*time as f32).powi(2);
+  let new_alt = old_pos.alt + vel.z() * (*time as f32) + 0.5 * accel.z() * (*time as f32).powi(2);
+  GpsCoord::new(new_lat, new_lon, new_alt)
+}
 
+
+pub fn calc_new_vel(old_vel: &RawPoint, accel: &RawPoint, time: &f64) -> GpsCoord {
+  let new_lat = old_vel.x() + accel.x() * (*time as f32);
+  let new_lon = old_vel.y() + accel.y() * (*time as f32);
+  let new_alt = old_vel.z() + accel.z() * (*time as f32);
+  GpsCoord::new(new_lat, new_lon, new_alt)
+}
+
+
+#[allow(dead_code)]
 fn degrees_to_radians(degrees: f32) -> f32 {
   degrees * PI / 180.0
 }
 
+#[allow(dead_code)]
 /// Computes the distance in meters between two points on earth.
-/// Takes in latitude and longitude of two points, and returns 
+/// Takes in latitude and longitude of two points, and returns
 /// the distance between them in meters.
 fn haversine_distance(lat1: f32, lon1: f32, lat2: f32, lon2: f32) -> f32 {
     let r = 6371.0; // radius of earth in km
@@ -139,8 +169,7 @@ fn haversine_distance(lat1: f32, lon1: f32, lat2: f32, lon2: f32) -> f32 {
     let d_lon = degrees_to_radians(lon2 - lon1);
     let a = (d_lat/2.0).sin() * (d_lat/2.0).sin() + lat1.cos() * lat2.cos() * (d_lon/2.0).sin() * (d_lon/2.0).sin();
     let c = 2.0 * a.sqrt().atan2((1.0-a).sqrt());
-    let d = r * c;
-    d
+    r * c
 }
 
 

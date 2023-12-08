@@ -1,17 +1,8 @@
-// move bin code to another file
-// estimate position
-// compare with gps
-// test with movement
-
-// do spoofing
-// make separate types for accel and gyro points
-
-
 use rppal::i2c::I2c;
-use std::time::{Duration, Instant};
-use std::ops::{Add, Sub, Div};
-use std::cell::{RefCell, RefMut};
+use std::cell::RefMut;
 use std::fmt::Display;
+use std::ops::{Add, Sub, Div};
+use std::time::{Duration, Instant};
 
 const MPU6050_ADDR: u16 = 0x68; // I2C address of the MPU6050
 const CALIB_TIME: u64 = 10000; // Default mpu6050 calibration time in milliseconds
@@ -24,24 +15,24 @@ const ACCEL_SENSITIVITY: f32 = 16384.0; // Accelerometer sensitivity in LSB/g (C
 
 /// DataPoint struct to hold x, y, and z values for acceleration and gyroscope
 #[derive(Clone, Copy, Default, Debug)]
-struct DataPoint {
+pub struct DataPoint {
   x: i16,
   y: i16,
   z: i16,
 }
 
 #[derive(Clone, Copy, Debug)]
-enum AccelPoint {
+pub enum AccelPoint {
   Accel(DataPoint),
 }
 
 #[derive(Clone, Copy, Debug)]
-enum GyroPoint {
+pub enum GyroPoint {
   Gyro(DataPoint),
 }
 
 #[derive(Clone, Copy, Debug)]
-struct RawAccel {
+pub struct RawPoint {
   x: f32,
   y: f32,
   z: f32,
@@ -50,7 +41,7 @@ struct RawAccel {
 
 
 /// Initializes the mpu6050 and returns an I2c device
-fn init_mpu6050() -> I2c {
+pub fn init_mpu6050() -> I2c {
   let mut i2c = I2c::new().unwrap();
   i2c.set_slave_address(MPU6050_ADDR).unwrap();
 
@@ -72,7 +63,7 @@ fn init_mpu6050() -> I2c {
 /// 'max_cal_time' is number of seconds to calibrate for
 /// 'diff_between_iters' is the maximum difference between iterations to be considered consistent
 /// 'consistent_iters' is the number of iterations that must be consistent to be considered the average
-pub fn calibrate_mpu6050(i2c: &RefMut<I2c>, max_calibration_time: Option<Duration>, 
+pub fn calibrate_mpu6050(i2c: RefMut<I2c>, max_calibration_time: Option<Duration>, 
                      diff_between_iters: Option<i16>, consistent_iters: Option<u8>)
                      -> (AccelPoint, GyroPoint) {
   // set default values if none given
@@ -164,7 +155,8 @@ pub fn calibrate_mpu6050(i2c: &RefMut<I2c>, max_calibration_time: Option<Duratio
 // this currently returns datapoint regardless of T being AccelPoint or GyroPoint
 /// Returns the mean average of a vector of DataPoints
 fn get_average<T>(points: &Vec<T>) -> T 
-where T: DataPointType + Default
+where
+  T: DataPointType + Default
 {
 
   if points.is_empty() {
@@ -209,19 +201,19 @@ fn get_gyroscope(i2c: &RefMut<I2c>) -> GyroPoint {
 
 
 /// Converts raw acceleration data to m/s^2
-fn convert_raw_point(raw_point: AccelPoint) -> RawAccel {
+fn convert_raw_point(raw_point: AccelPoint) -> RawPoint {
   match raw_point {
     AccelPoint::Accel(accel_data) => {
       let x = accel_data.x as f32 / ACCEL_SENSITIVITY * GRAVITY_ACCEL;
       let y = accel_data.y as f32 / ACCEL_SENSITIVITY * GRAVITY_ACCEL;
       let z = accel_data.z as f32 / ACCEL_SENSITIVITY * GRAVITY_ACCEL;
-      RawAccel {x, y, z}
+      RawPoint {x, y, z}
     }
   }
 }
 
 /// Gets an acceleration point, applies the calibration offsets, and converts to m/s^2
-pub fn get_converted_acceleration(i2c: &RefMut<I2c>, accel_offsets: &AccelPoint) -> RawAccel {
+pub fn get_converted_acceleration(i2c: &RefMut<I2c>, accel_offsets: &AccelPoint) -> RawPoint {
   let accel_point = get_acceleration(&i2c);
   let offset_acceleration = accel_point - *accel_offsets;
   convert_raw_point(offset_acceleration)
@@ -233,18 +225,6 @@ pub fn get_offset_gyroscope(i2c: &RefMut<I2c>, gyro_offsets: &GyroPoint) -> Gyro
   gyro_point - *gyro_offsets
 }
 
-
-/// Computes new position (in one direction) based on acceleration
-pub fn compute_position(x0: f32, v0: f32, a: f32, t: f32) -> f32 {
-  // x = x0 + v0*t + 1/2*a*t^2
-  x0 + v0*t + 0.5*a*t.powi(2)
-}
-
-/// Computes new velocity (in one direction) based on acceleration
-pub fn compute_velocity(v0: f32, a: f32, t: f32) -> f32 {
-  // v = v0 + a*t
-  v0 + a*t
-}
 
 
 
@@ -258,15 +238,9 @@ trait DataPointType {
 
 /// DataPoint Implementations
 
-impl DataPoint {
-  fn new(x: i16, y: i16, z: i16) -> Self {
-    DataPoint {x, y, z}
-  }
-}
-
 impl DataPointType for DataPoint {
   fn new(x: i16, y: i16, z: i16) -> Self {
-    DataPoint::new(x, y, z)
+    DataPoint {x, y, z}
   }
 
   fn x(&self) -> i16 {
@@ -320,12 +294,6 @@ impl Div<i16> for DataPoint {
 
 
 /// Acceleration Implementations
-
-impl AccelPoint {
-  fn new(x: i16, y: i16, z: i16) -> Self {
-    AccelPoint::Accel(DataPoint::new(x, y, z))
-  }
-}
 
 impl DataPointType for AccelPoint {
   fn new(x: i16, y: i16, z: i16) -> Self {
@@ -398,12 +366,6 @@ impl Div<i16> for AccelPoint {
 
 /// Gyroscope Implementations
 
-impl GyroPoint {
-  fn new(x: i16, y: i16, z: i16) -> Self {
-    GyroPoint::Gyro(DataPoint::new(x, y, z))
-  }
-}
-
 impl DataPointType for GyroPoint {
   fn new(x: i16, y: i16, z: i16) -> Self {
     GyroPoint::Gyro(DataPoint::new(x, y, z))
@@ -474,9 +436,27 @@ impl Div<i16> for GyroPoint {
 
 
 /// Raw Acceleration Implementations
-impl Display for RawAccel {
+impl Display for RawPoint {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     write!(f, "Accel: (x: {:.3}, y: {:.3}, z: {:.3})", self.x, self.y, self.z)
+  }
+}
+
+impl RawPoint {
+  pub fn new(x: f32, y: f32, z: f32) -> Self {
+    RawPoint {x, y, z}
+  }
+
+  pub fn x(&self) -> f32 {
+    self.x
+  }
+
+  pub fn y(&self) -> f32 {
+    self.y
+  }
+
+  pub fn z(&self) -> f32 {
+    self.z
   }
 }
 
