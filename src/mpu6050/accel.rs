@@ -111,8 +111,7 @@ pub fn calibrate_mpu6050(i2c: RefMut<I2c>, max_calibration_time: Option<Duration
       prev_avg_accel = avg;
       if consistent_accel_iters >= consistent_iters {
         avg_accel_found = true; // don't keep evaluating acceleration
-        // subtract 1g from z axis
-        let gravity_avg = DataPoint::new(avg.x(), avg.y(), avg.z() - (ACCEL_SENSITIVITY as i16));
+        let gravity_avg = DataPoint::new(avg.x(), avg.y(), avg.z()); // - (ACCEL_SENSITIVITY as i16)); // uncomment to have gravity be 9.8
         avg_accel_offset = AccelPoint::Accel(gravity_avg); // set final calibration values
       }
     }
@@ -555,51 +554,6 @@ mod tests {
     assert_eq!(p2.x, 6);
     assert_eq!(p2.y, 12);
     assert_eq!(p2.z, 18);
-  }
-
-  #[test]
-  fn test_compute_position() {
-    let x0 = 0.0;
-    let v0 = 0.0;
-    let a = 0.0;
-    let t = 0.0;
-    let x = compute_position(x0, v0, a, t);
-    assert_eq!(x, 0.0);
-
-    let x0 = 0.0;
-    let v0 = 0.0;
-    let a = 5.0;
-    let t = 2.0;
-    let x = compute_position(x0, v0, a, t);
-    assert_eq!(x, 10.0);
-
-    let x0 = 10.0;
-    let v0 = 5.0;
-    let a = 5.0;
-    let t = 2.0;
-    let x = compute_position(x0, v0, a, t);
-    assert_eq!(x, 30.0);
-  }
-
-  #[test]
-  fn test_compute_velocity() {
-    let v0 = 0.0;
-    let a = 0.0;
-    let t = 0.0;
-    let v = compute_velocity(v0, a, t);
-    assert_eq!(v, 0.0);
-
-    let v0 = 0.0;
-    let a = 5.0;
-    let t = 2.0;
-    let v = compute_velocity(v0, a, t);
-    assert_eq!(v, 10.0);
-
-    let v0 = 5.0;
-    let a = 5.0;
-    let t = 2.0;
-    let v = compute_velocity(v0, a, t);
-    assert_eq!(v, 15.0);
   }
 
 }

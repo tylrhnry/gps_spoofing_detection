@@ -8,7 +8,7 @@ use rppal::i2c::I2c;
 
 const PORT_NAME: &str = "/dev/ttyS0";
 const BAUD_RATE: &str = "9600";
-const GPS_ACCURACY: f32 = 4.0; // meters
+const GPS_ACCURACY: f32 = 10.0; // meters
 const GPS_FIX_TIMEOUT: Duration = Duration::from_secs(60); // How long to wait for gps fix before timing out
 
 
@@ -37,48 +37,31 @@ fn main() {
   }
 
   let i2c = i2c.borrow_mut();
-  detect_spoofing(&mut gps, fix.unwrap(), &accel_offsets, &i2c);
+  detect_spoofing(&mut gps, &accel_offsets, &i2c);
 
-
-  // get rid of this
-  // loop {
-  //   let gps_data = gps::gps::get_gps(&mut gps).expect("Lost connection to gps");
-  //   println!("{:?}", gps_data);
-  //   for _ in 0..500 {
-  //     let accel_point = {
-  //       let i2c = i2c.borrow_mut();
-  //       mpu6050::accel::get_converted_acceleration(&i2c, &accel_offsets)
-  //     };
-  //     let gyro_point = {
-  //       let i2c = i2c.borrow_mut();
-  //       mpu6050::accel::get_offset_gyroscope(&i2c, &gyro_offsets)
-  //     };
-  //     print!("{accel_point}\t");
-  //     println!("{gyro_point}");
-  //   }
-  // }
 }
 
 /// Detects spoofing by comparing the predicted position to the actual position
-fn detect_spoofing(gps: &mut Gps, start_pos: neo6m::gps::GpsCoord, accel_offsets: &mpu6050::accel::AccelPoint, i2c: &RefMut<'_, I2c>) {
-  let gps_data = neo6m::gps::get_gps(gps).expect("Lost connection to gps");
+fn detect_spoofing(gps: &mut Gps, accel_offsets: &mpu6050::accel::AccelPoint, i2c: &RefMut<'_, I2c>) {
+  let mut gps_data = neo6m::gps::get_gps(gps).expect("Lost connection to gps");
   
-  let mut x0 = start_pos; // Initial position
+  let mut x0 = neo6m::gps::GpsCoord::new(gps_data.lat(), gps_data.lon(), gps_data.alt()); // Initial position
   let mut v0 = mpu6050::accel::RawPoint::new(0.0, 0.0, 0.0); // Initial velocity
 
   loop {
     // predict position
-    let (new_pos, new_vel) = predict_position(500, i2c, accel_offsets, &x0, &v0);
-
+    let (predicted_pos, new_vel) = predict_position(500, i2c, accel_offsets, &x0, &v0);
+    gps_data = neo6m::gps::get_gps(gps).expect("Lost connection to gps");
+    x0 = neo6m::gps::GpsCoord::new(gps_data.lat(), gps_data.lon(), gps_data.alt()); // Initial position
+    println!("{x0}");
     // compare
-    let dist = neo6m::gps::haversine_distance(&x0.lat(), &x0.lon(), &new_pos.lat(), &new_pos.lon());
+    let dist = neo6m::gps::haversine_distance(x0.lat(), x0.lon(), predicted_pos.lat(), predicted_pos.lon());
     let error_dist = gps_data.hor_prec() * GPS_ACCURACY;
     if dist > error_dist {
+      println!("dist: {}, error_dist: {}", dist, error_dist);
       println!("Spoofing detected");
-      return;
     }
     // reset values
-    x0 = new_pos;
     v0 = new_vel;
   }
 }
@@ -93,10 +76,10 @@ fn predict_position(num_iters: u32,
   let avg_accel = average_acceleration(num_iters, i2c, accel_offsets);
   let t = start.elapsed().as_secs_f64();
 
-  let new_pos = neo6m::gps::calc_new_pos(x0, v0, &avg_accel, &t);
+  let predicted_pos = neo6m::gps::calc_new_pos(x0, v0, &avg_accel, &t);
   let v0 = neo6m::gps::calc_new_vel(v0, &avg_accel, &t);
 
-  (new_pos, v0)
+  (predicted_pos, v0)
 }
 
 fn average_acceleration(num_iters: u32, i2c: &RefMut<'_, I2c>, accel_offsets: &mpu6050::accel::AccelPoint) -> mpu6050::accel::RawPoint {
