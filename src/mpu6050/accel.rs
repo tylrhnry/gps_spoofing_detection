@@ -151,7 +151,7 @@ pub fn calibrate_mpu6050(i2c: RefMut<I2c>, max_calibration_time: Option<Duration
   (avg_accel_offset, avg_gyro_offset)
 }
 
-// this currently returns datapoint regardless of T being AccelPoint or GyroPoint
+
 /// Returns the mean average of a vector of DataPoints
 fn get_average<T>(points: &Vec<T>) -> T 
 where

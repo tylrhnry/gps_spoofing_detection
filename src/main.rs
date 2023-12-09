@@ -41,6 +41,8 @@ fn main() {
 
 }
 
+
+
 /// Detects spoofing by comparing the predicted position to the actual position
 fn detect_spoofing(gps: &mut Gps, accel_offsets: &mpu6050::accel::AccelPoint, i2c: &RefMut<'_, I2c>) {
   let mut gps_data = neo6m::gps::get_gps(gps).expect("Lost connection to gps");
@@ -66,6 +68,8 @@ fn detect_spoofing(gps: &mut Gps, accel_offsets: &mpu6050::accel::AccelPoint, i2
   }
 }
 
+
+/// Predicts the position of the gps using the accelerometer
 fn predict_position(num_iters: u32, 
                     i2c: &RefMut<'_, I2c>, 
                     accel_offsets: &mpu6050::accel::AccelPoint, 
@@ -82,6 +86,8 @@ fn predict_position(num_iters: u32,
   (predicted_pos, v0)
 }
 
+
+/// Returns the average acceleration over a period of time
 fn average_acceleration(num_iters: u32, i2c: &RefMut<'_, I2c>, accel_offsets: &mpu6050::accel::AccelPoint) -> mpu6050::accel::RawPoint {
   let mut accel_sum = mpu6050::accel::RawPoint::new(0.0, 0.0, 0.0);
   for _ in 0..num_iters {
