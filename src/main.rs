@@ -52,6 +52,7 @@ fn detect_spoofing(gps: &mut Gps, accel_offsets: &mpu6050::accel::AccelPoint, i2
 
   loop {
     // predict position
+    println!("using initial position of {x0}");
     let (predicted_pos, new_vel) = predict_position(500, i2c, accel_offsets, &x0, &v0);
     gps_data = neo6m::gps::get_gps(gps).expect("Lost connection to gps");
     x0 = neo6m::gps::GpsCoord::new(gps_data.lat(), gps_data.lon(), gps_data.alt()); // Initial position
