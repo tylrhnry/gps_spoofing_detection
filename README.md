@@ -15,16 +15,18 @@ the Pi on the I2C pins (GPIO pins 2 and 3).
 
 This is an example of the GPS data I can recieve (this is the unparsed and parsed data
 combined. There is a lot of data with the unparsed, and it is somewhat hard to visualize).
+
 ![GPS data](./md_img/gps_out.png)
 
-This is an example of the accelerometer data I can parse from the module. This is before
-calibrating the data and converting it to G's.
+This is an example of the accelerometer data I can parse from the module. This is after calibrating the sensor and converting the data to G's.
+
 ![Acceleromter data](./md_img/accel_out.png)
 
 To build and run the project, place the spoofing_detection crate where you like on your computer and wire the processor and sensors as described above and seen in the photo. In a terminal, navigate into the spoofing_detection crate and run `cargo run`.
 This will build the project and begin the spoofing detection program. When spoofing is detected, a message is printed to the console. Alternate behavior can be added to customize the defensive behavior.
+
 ![Example Program Running](./md_img/program_output.png)
 
-A clip and explanation of the project can be found [here](https://youtu.be/3lkAla2swwI)
-Or copy and paste this link.
+A clip and explanation of the project can be found [here.](https://youtu.be/3lkAla2swwI)
+Or you can copy and paste this link.
 https://youtu.be/3lkAla2swwI
