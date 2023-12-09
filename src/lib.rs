@@ -1,3 +1,3 @@
 // Re-export modules
-pub mod gps;
+pub mod neo6m;
 pub mod mpu6050;

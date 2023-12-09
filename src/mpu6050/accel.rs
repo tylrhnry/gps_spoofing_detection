@@ -1,7 +1,7 @@
 use rppal::i2c::I2c;
 use std::cell::RefMut;
 use std::fmt::Display;
-use std::ops::{Add, Sub, Div};
+use std::ops::{Add, Sub, Div, AddAssign};
 use std::time::{Duration, Instant};
 
 const MPU6050_ADDR: u16 = 0x68; // I2C address of the MPU6050
@@ -214,14 +214,15 @@ fn convert_raw_point(raw_point: AccelPoint) -> RawPoint {
 
 /// Gets an acceleration point, applies the calibration offsets, and converts to m/s^2
 pub fn get_converted_acceleration(i2c: &RefMut<I2c>, accel_offsets: &AccelPoint) -> RawPoint {
-  let accel_point = get_acceleration(&i2c);
+  let accel_point = get_acceleration(i2c);
   let offset_acceleration = accel_point - *accel_offsets;
   convert_raw_point(offset_acceleration)
 }
 
+#[allow(dead_code)] // this will be used when gyroscope data is taken into account
 /// Gets a gyroscope point and applies the calibration offsets
 pub fn get_offset_gyroscope(i2c: &RefMut<I2c>, gyro_offsets: &GyroPoint) -> GyroPoint {
-  let gyro_point = get_gyroscope(&i2c);
+  let gyro_point = get_gyroscope(i2c);
   gyro_point - *gyro_offsets
 }
 
@@ -460,6 +461,51 @@ impl RawPoint {
   }
 }
 
+impl Add for RawPoint {
+  type Output = Self;
+
+  fn add(self, other: Self) -> Self {
+    RawPoint {
+      x: self.x + other.x,
+      y: self.y + other.y,
+      z: self.z + other.z,
+    }
+  }
+}
+
+impl AddAssign for RawPoint {
+  fn add_assign(&mut self, other: Self) {
+    *self = RawPoint {
+      x: self.x + other.x,
+      y: self.y + other.y,
+      z: self.z + other.z,
+    }
+  }
+}
+
+impl Div<RawPoint> for RawPoint {
+  type Output = Self;
+
+  fn div(self, divisor: Self) -> Self {
+    RawPoint {
+      x: self.x / divisor.x,
+      y: self.y / divisor.y,
+      z: self.z / divisor.z,
+    }
+  }
+}
+
+impl Div<f32> for RawPoint {
+  type Output = Self;
+
+  fn div(self, divisor: f32) -> Self {
+    RawPoint {
+      x: self.x / divisor,
+      y: self.y / divisor,
+      z: self.z / divisor,
+    }
+  }
+}
 
 
 
